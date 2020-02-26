@@ -13,12 +13,25 @@ type Item struct {
 	Category string `json:"category"`
 }
 
+type FilterFunc func(Item) bool
+
 type ItemList struct {
 	Items []Item `json:"items"`
 }
 
 var GlobalItems ItemList
 var GlobalGuard sync.RWMutex
+
+func (list ItemList) FilterBy(filter FilterFunc) ItemList {
+	var result ItemList
+	result.Items = make([]Item, 0)
+	for _, item := range list.Items {
+		if filter(item) {
+			result.Items = append(result.Items, item)
+		}
+	}
+	return result
+}
 
 func IsStringIn(val string, arr []string) bool {
 	for _, item := range arr {
@@ -39,36 +52,21 @@ func IsUint64In(val uint64, arr []uint64) bool {
 }
 
 func (list ItemList) FilterByTitles(titles []string) ItemList {
-	var result ItemList
-	result.Items = make([]Item, 0)
-	for _, item := range list.Items {
-		if IsStringIn(item.Title, titles) {
-			result.Items = append(result.Items, item)
-		}
-	}
-	return result
+	return list.FilterBy(func(item Item) bool {
+		return IsStringIn(item.Title, titles)
+	})
 }
 
 func (list ItemList) FilterByCategories(categories []string) ItemList {
-	var result ItemList
-	result.Items = make([]Item, 0)
-	for _, item := range list.Items {
-		if IsStringIn(item.Category, categories) {
-			result.Items = append(result.Items, item)
-		}
-	}
-	return result
+	return list.FilterBy(func(item Item) bool {
+		return IsStringIn(item.Category, categories)
+	})
 }
 
 func (list ItemList) FilterByIds(ids []uint64) ItemList {
-	var result ItemList
-	result.Items = make([]Item, 0)
-	for _, item := range list.Items {
-		if IsUint64In(item.ID, ids) {
-			result.Items = append(result.Items, item)
-		}
-	}
-	return result
+	return list.FilterBy(func(item Item) bool {
+		return IsUint64In(item.ID, ids)
+	})
 }
 
 func ConvertIdsFromStrings(ids []string) ([]uint64, error) {
@@ -84,27 +82,59 @@ func ConvertIdsFromStrings(ids []string) ([]uint64, error) {
 }
 
 func ItemHandler(w http.ResponseWriter, r *http.Request) {
+	stdid := r.URL.Path[len("/items/"):]
+	var ids [1]uint64
+	id, err := strconv.ParseUint(stdid, 10, 64)
+	ids[0] = id
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if r.Method == http.MethodGet {
+		// prefix is /items/, skip it
+
 		GlobalGuard.RLock()
 		defer GlobalGuard.RUnlock()
-		param := r.URL.Query()
-		values, ok := param["id"]
-		if !ok || len(values) != 1 {
-			http.Error(w, "You should specify exactly one 'id' parameter", http.StatusBadRequest)
-			return
-		}
-		ids, err := ConvertIdsFromStrings(values)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		result := GlobalItems.FilterByIds(ids)
+		result := GlobalItems.FilterByIds(ids[:])
 		if len(result.Items) != 1 {
 			http.Error(w, "Item not found", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result.Items[0])
+	} else if r.Method == http.MethodDelete {
+		GlobalGuard.Lock()
+		defer GlobalGuard.Unlock()
+		oldLen := len(GlobalItems.Items)
+		GlobalItems = GlobalItems.FilterBy(func(item Item) bool {
+			return item.ID != id
+		})
+		if len(GlobalItems.Items) == oldLen {
+			http.Error(w, "Item not found", http.StatusNotFound)
+			return
+		}
+	} else if r.Method == http.MethodPut {
+		var item Item
+		err := json.NewDecoder(r.Body).Decode(&item)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if id != item.ID {
+			http.Error(w, "ID dismiss", http.StatusBadRequest)
+			return
+		}
+		GlobalGuard.Lock()
+		defer GlobalGuard.Unlock()
+		oldLen := len(GlobalItems.Items)
+		GlobalItems = GlobalItems.FilterBy(func(item Item) bool {
+			return item.ID != id
+		})
+		if len(GlobalItems.Items) == oldLen {
+			http.Error(w, "Item not found", http.StatusNotFound)
+			return
+		}
+		GlobalItems.Items = append(GlobalItems.Items, item)
 	} else {
 		http.Error(w, "Unsupported method", http.StatusBadRequest)
 	}
