@@ -1,2 +1,10 @@
-# dist-sys
-The repository for dist. sys. homework project.
+# Домашняя работа по курсу РВ
+В данном приложении реализовано простейшее REST-API для интернет-магазина с помощью микросервисов.
+
+## Документация
+Документацию по доступным в данный момент методам можно найти в файле docs.md, а так же в виде Postman схемы в файле Project.postman_collection.json.
+
+## Запуск
+```
+docker-compose build && docker-compose up
+```
