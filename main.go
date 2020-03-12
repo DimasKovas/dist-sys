@@ -4,69 +4,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"sync"
+	"strings"
+
+	"github.com/DimasKovas/dist-sys/dbclient"
 )
 
-type Item struct {
-	Title    string `json:"title"`
-	ID       uint64 `json:"id"`
-	Category string `json:"category"`
-}
+type Item dbclient.Item
 
-type FilterFunc func(Item) bool
+var db dbclient.Client
 
 type ItemList struct {
 	Items []Item `json:"items"`
-}
-
-var GlobalItems ItemList
-var GlobalGuard sync.RWMutex
-
-func (list ItemList) FilterBy(filter FilterFunc) ItemList {
-	var result ItemList
-	result.Items = make([]Item, 0)
-	for _, item := range list.Items {
-		if filter(item) {
-			result.Items = append(result.Items, item)
-		}
-	}
-	return result
-}
-
-func IsStringIn(val string, arr []string) bool {
-	for _, item := range arr {
-		if val == item {
-			return true
-		}
-	}
-	return false
-}
-
-func IsUint64In(val uint64, arr []uint64) bool {
-	for _, item := range arr {
-		if val == item {
-			return true
-		}
-	}
-	return false
-}
-
-func (list ItemList) FilterByTitles(titles []string) ItemList {
-	return list.FilterBy(func(item Item) bool {
-		return IsStringIn(item.Title, titles)
-	})
-}
-
-func (list ItemList) FilterByCategories(categories []string) ItemList {
-	return list.FilterBy(func(item Item) bool {
-		return IsStringIn(item.Category, categories)
-	})
-}
-
-func (list ItemList) FilterByIds(ids []uint64) ItemList {
-	return list.FilterBy(func(item Item) bool {
-		return IsUint64In(item.ID, ids)
-	})
 }
 
 func ConvertIdsFromStrings(ids []string) ([]uint64, error) {
@@ -82,7 +30,7 @@ func ConvertIdsFromStrings(ids []string) ([]uint64, error) {
 }
 
 func ItemHandler(w http.ResponseWriter, r *http.Request) {
-	stdid := r.URL.Path[len("/items/"):]
+	stdid := r.URL.Path[len("/item/"):]
 	var ids [1]uint64
 	id, err := strconv.ParseUint(stdid, 10, 64)
 	ids[0] = id
@@ -186,9 +134,118 @@ func ItemListHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func responseOK(w http.ResponseWriter, result interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func responseError(w http.ResponseWriter, err error, statusCode int) {
+	w.WriteHeader(statusCode)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(err)
+}
+
+func extractIndexFromUrl(url string, pref string) (uint64, error) {
+	return strconv.ParseUint(strings.TrimPrefix(url, pref), 10, 64)
+}
+
+func getItemHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := extractIndexFromUrl(r.URL.Path, "/item/")
+	if err != nil {
+		responseError(w, err, http.StatusBadRequest)
+		return
+	}
+	item, err := db.GetItem(id)
+	if err != nil {
+		responseError(w, err, http.StatusInternalServerError)
+		return
+	}
+	responseOK(w, item)
+}
+
+func postItemHandler(w http.ResponseWriter, r *http.Request) {
+	var item Item
+	err := json.NewDecoder(r.Body).Decode(&item)
+	if err != nil {
+		responseError(w, err, http.StatusBadRequest)
+		return
+	}
+	id, err := db.NewItem(item)
+	if err != nil {
+		responseError(w, err, http.StatusInternalServerError)
+		return
+	}
+	responseOK(w, id)
+}
+
+func putItemHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := extractIndexFromUrl(r.URL.Path, "/item/")
+	if err != nil {
+		responseError(w, err, http.StatusBadRequest)
+		return
+	}
+	var item Item
+	err = json.NewDecoder(r.Body).Decode(&item)
+	if err != nil {
+		responseError(w, err, http.StatusBadRequest)
+		return
+	}
+	item.ID = id
+	err = db.UpdateItem(item)
+	if err != nil {
+		responseError(w, err, http.StatusInternalServerError)
+		return
+	}
+	responseOK(w, nil)
+}
+
+func deleteItemHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := extractIndexFromUrl(r.URL.Path, "/item/")
+	if err != nil {
+		responseError(w, err, http.StatusBadRequest)
+		return
+	}
+	err = db.DeleteItem(id)
+	if err != nil {
+		responseError(w, err, http.StatusBadRequest)
+		return
+	}
+	responseOK(w, nil)
+}
+
+func generalItemHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		getItemHandler(w, r)
+	case "POST":
+		postItemHandler(w, r)
+	case "PUT":
+		putItemHandler(w, r)
+	case "DELETE":
+		deleteItemHandler(w, r)
+	default:
+		w.Header().Add("Allow", "GET, POST, PUT, DELETE")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func getItemsHandler(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func generalItemsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		getItemsHandler(w, r)
+	default:
+		w.Header().Add("Allow", "GET")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
 func main() {
 	GlobalItems.Items = make([]Item, 0)
 	http.HandleFunc("/items", ItemListHandler)
-	http.HandleFunc("/items/", ItemHandler)
+	http.HandleFunc("/item", generalItemHandler)
 	http.ListenAndServe(":8080", nil)
 }
