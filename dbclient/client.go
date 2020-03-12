@@ -4,14 +4,14 @@ import (
 	"context"
 	"os"
 
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx"
 )
 
 type Client struct {
 	connection *pgx.Conn
 }
 
-func CreateDbClient() (DbClient, error) {
+func CreateDbClient() (Client, error) {
 	db := Client{}
 	conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -21,8 +21,8 @@ func CreateDbClient() (DbClient, error) {
 	_, err = db.connection.Exec(context.Background(),
 		`create table if not exists items (
 			id serial primary key,
-			title string not null,
-			category string not null
+			title text not null,
+			category text not null
 		);`)
 	if err != nil {
 		return Client{}, err
@@ -50,7 +50,7 @@ func (db *Client) NewItem(item Item) (uint64, error) {
 }
 
 func (db *Client) UpdateItem(item Item) error {
-	err := db.connection.QueryRow(context.Background(),
+	_, err := db.connection.Exec(context.Background(),
 		`update items
 		set title = $1,
 			category = $2
@@ -60,7 +60,7 @@ func (db *Client) UpdateItem(item Item) error {
 }
 
 func (db *Client) DeleteItem(id uint64) error {
-	err := db.connection.QueryRow(context.Background(),
+	_, err := db.connection.Exec(context.Background(),
 		`delete from items
 		where id = $1;
 		`, id)
@@ -79,28 +79,18 @@ func (db *Client) GetItem(id uint64) (Item, error) {
 }
 
 type GetItemListOptions struct {
-	Offset     *uint
-	Limit      *uint
-	Categories []string
+	Offset     uint64
+	Limit      uint64
+	Categories []string // Unsupported yet
 }
 
 func (db *Client) GetItemList(options GetItemListOptions) ([]Item, error) {
-	query := "select id, title, category from items ordered by id"
-	var offset, limit uint
-	var categories []string
-	if options.category != nil {
-		query += " where category in $3"
-		categories = options.Categories
-	}
-	if options.Offset != nil {
-		query += " offset $1"
-		offset = *options.Offset
-	}
-	if options.Limit != nil {
-		query += " limit $2"
-		limit = *options.Limit
-	}
-	rows, err := db.connection.Query(context.Background(), query, offset, limit, categories)
+	query := `select id, title, category from items
+		order by id
+		offset $1
+		limit $2`
+	rows, err := db.connection.Query(context.Background(), query,
+		options.Offset, options.Limit)
 	if err != nil {
 		return nil, err
 	}
