@@ -11,7 +11,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "localhost:8080/items",
+					"raw": "localhost:8080/items?",
 					"host": [
 						"localhost"
 					],
@@ -21,23 +21,13 @@
 					],
 					"query": [
 						{
-							"key": "title",
-							"value": "secs",
+							"key": "limit",
+							"value": "1",
 							"disabled": true
 						},
 						{
-							"key": "id",
-							"value": "3",
-							"disabled": true
-						},
-						{
-							"key": "id",
-							"value": "2",
-							"disabled": true
-						},
-						{
-							"key": "category",
-							"value": "test2",
+							"key": "offset",
+							"value": "1",
 							"disabled": true
 						}
 					]
@@ -60,7 +50,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\"id\": 2, \"title\": \"sec\", \"category\": \"test2\"}",
+					"raw": "{\"title\": \"title\", \"category\": \"cat1\"}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -68,13 +58,13 @@
 					}
 				},
 				"url": {
-					"raw": "localhost:8080/items",
+					"raw": "localhost:8080/item",
 					"host": [
 						"localhost"
 					],
 					"port": "8080",
 					"path": [
-						"items"
+						"item"
 					]
 				},
 				"description": "Добавляет новый предмет"
@@ -87,14 +77,14 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "localhost:8080/items/2",
+					"raw": "localhost:8080/item/1",
 					"host": [
 						"localhost"
 					],
 					"port": "8080",
 					"path": [
-						"items",
-						"2"
+						"item",
+						"1"
 					]
 				},
 				"description": "Возвращает указанный предмет по id"
@@ -115,7 +105,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\"id\": 2, \"title\": \"sec2\", \"category\": \"test2\"}",
+					"raw": "{\"title\": \"title\", \"category\": \"cat2\"}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -123,14 +113,14 @@
 					}
 				},
 				"url": {
-					"raw": "localhost:8080/items/2",
+					"raw": "localhost:8080/item/1",
 					"host": [
 						"localhost"
 					],
 					"port": "8080",
 					"path": [
-						"items",
-						"2"
+						"item",
+						"1"
 					]
 				},
 				"description": "Обновляет указанный предмет по id"
@@ -143,14 +133,14 @@
 				"method": "DELETE",
 				"header": [],
 				"url": {
-					"raw": "localhost:8080/items/2",
+					"raw": "localhost:8080/item/1",
 					"host": [
 						"localhost"
 					],
 					"port": "8080",
 					"path": [
-						"items",
-						"2"
+						"item",
+						"1"
 					]
 				},
 				"description": "Удаляет указанный предмет по id"
