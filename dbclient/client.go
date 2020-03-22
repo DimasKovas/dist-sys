@@ -2,14 +2,17 @@ package dbclient
 
 import (
 	"context"
+	"errors"
 	"os"
 
-	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/v4"
 )
 
 type Client struct {
 	connection *pgx.Conn
 }
+
+var ErrNotFound = errors.New("Specified item doesn't exist")
 
 func CreateDbClient() (Client, error) {
 	db := Client{}
@@ -24,10 +27,7 @@ func CreateDbClient() (Client, error) {
 			title text not null,
 			category text not null
 		);`)
-	if err != nil {
-		return Client{}, err
-	}
-	return db, nil
+	return db, err
 }
 
 type Item struct {
@@ -50,20 +50,26 @@ func (db *Client) NewItem(item Item) (uint64, error) {
 }
 
 func (db *Client) UpdateItem(item Item) error {
-	_, err := db.connection.Exec(context.Background(),
+	tags, err := db.connection.Exec(context.Background(),
 		`update items
 		set title = $1,
 			category = $2
 		where id = $3
 		`, item.Title, item.Category, item.ID)
+	if err == nil && tags.RowsAffected() != 1 {
+		return ErrNotFound
+	}
 	return err
 }
 
 func (db *Client) DeleteItem(id uint64) error {
-	_, err := db.connection.Exec(context.Background(),
+	tags, err := db.connection.Exec(context.Background(),
 		`delete from items
 		where id = $1;
 		`, id)
+	if err == nil && tags.RowsAffected() != 1 {
+		return ErrNotFound
+	}
 	return err
 }
 
@@ -72,10 +78,10 @@ func (db *Client) GetItem(id uint64) (Item, error) {
 	err := db.connection.QueryRow(context.Background(),
 		`select id, title, category from items where id = $1
 		`, id).Scan(&item.ID, &item.Title, &item.Category)
-	if err != nil {
-		return Item{}, err
+	if err == pgx.ErrNoRows {
+		err = ErrNotFound
 	}
-	return item, nil
+	return item, err
 }
 
 type GetItemListOptions struct {
@@ -104,4 +110,11 @@ func (db *Client) GetItemList(options GetItemListOptions) ([]Item, error) {
 		res = append(res, item)
 	}
 	return res, nil
+}
+
+func (db *Client) GetItemListSize() (int, error) {
+	var size int
+	err := db.connection.QueryRow(context.Background(),
+		`select count(*) from items`).Scan(&size)
+	return size, err
 }
