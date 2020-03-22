@@ -53,7 +53,12 @@ func getItemHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := db.GetItem(id)
 	if err != nil {
-		respondWithError(w, err, http.StatusInternalServerError)
+		switch err {
+		case dbclient.ErrNotFound:
+			respondWithError(w, err, http.StatusNotFound)
+		default:
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
 		return
 	}
 	respondOK(w, item)
@@ -95,7 +100,12 @@ func putItemHandler(w http.ResponseWriter, r *http.Request) {
 	item.ID = id
 	err = db.UpdateItem(item)
 	if err != nil {
-		respondWithError(w, err, http.StatusInternalServerError)
+		switch err {
+		case dbclient.ErrNotFound:
+			respondWithError(w, err, http.StatusNotFound)
+		default:
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
 		return
 	}
 	respondOK(w, putItemResponse{})
@@ -111,7 +121,12 @@ func deleteItemHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	err = db.DeleteItem(id)
 	if err != nil {
-		respondWithError(w, err, http.StatusBadRequest)
+		switch err {
+		case dbclient.ErrNotFound:
+			respondWithError(w, err, http.StatusNotFound)
+		default:
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
 		return
 	}
 	respondOK(w, deleteItemResponse{})
@@ -140,7 +155,10 @@ func extractUintFromParams(params url.Values, name string) (uint64, error) {
 	return parseUint(params[name][0])
 }
 
-type getItemsResponse = []Item
+type getItemsResponse struct {
+	Count int    `json:"count"`
+	Items []Item `json:"items"`
+}
 
 func getItemsHandler(w http.ResponseWriter, r *http.Request) {
 	var options dbclient.GetItemListOptions
@@ -173,7 +191,12 @@ func getItemsHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err, http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, items)
+	size, err := db.GetItemListSize()
+	if err != nil {
+		respondWithError(w, err, http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, getItemsResponse{size, items})
 }
 
 func generalItemsHandler(w http.ResponseWriter, r *http.Request) {
