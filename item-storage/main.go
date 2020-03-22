@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/DimasKovas/dist-sys/dbclient"
+	"item-storage/dbclient"
 )
 
 type Item = dbclient.Item

@@ -4,12 +4,12 @@ services:
         image: postgres
         environment:
             POSTGRES_PASSWORD: DB_PASSWORD
-    restful_api:
-        build: .
+    item-storage:
+        build: ./item-storage
         ports:
             - 8080:8080
         depends_on:
             - "database"
-        command: ["./wait-for-it/wait-for-it.sh", "database:5432", "--", "./main"]
+        command: ["./wait-for-it.sh", "database:5432", "--", "./item-storage"]
         environment:
             DATABASE_URL: "postgres://postgres:DB_PASSWORD@database:5432/postgres"
