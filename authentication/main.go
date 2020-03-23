@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"authentication/dbclient"
@@ -17,6 +19,7 @@ import (
 var db dbclient.Client
 
 type Config struct {
+	TokenLength          uint
 	RefreshTokenLifeTime time.Duration
 	AccessTokenLifeTime  time.Duration
 }
@@ -24,7 +27,8 @@ type Config struct {
 var conf Config
 
 func (c *Config) Load() error {
-	var err error
+	tlen, err := strconv.ParseUint(os.Getenv("TOKEN_LENGTH"), 10, 64)
+	c.TokenLength = uint(tlen)
 	c.RefreshTokenLifeTime, err = time.ParseDuration(os.Getenv("REFRESH_TOKEN_LIFE_TIME"))
 	if err != nil {
 		return err
@@ -44,7 +48,9 @@ func checkPasswordHash(password, hash string) bool {
 }
 
 func generateToken(lenght int) string {
-	return "token"
+	b := make([]byte, lenght)
+	rand.Read(b)
+	return fmt.Sprintf("%x", b)
 }
 
 func respondOK(w http.ResponseWriter, result interface{}) {
@@ -91,7 +97,7 @@ func postSignUpHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err, http.StatusBadRequest)
 		return
 	}
-	respondOK(w, postSignUpRequest{})
+	respondOK(w, postSignUpResponse{})
 }
 
 func generalSignUpHandler(w http.ResponseWriter, r *http.Request) {
@@ -135,13 +141,13 @@ func postSignInHandler(w http.ResponseWriter, r *http.Request) {
 	rtinfo := dbclient.TokenInfo{
 		refresh,
 		time.Now().Add(conf.RefreshTokenLifeTime),
-		false,
+		true,
 		request.Username,
 	}
 	atinfo := dbclient.TokenInfo{
-		refresh,
+		access,
 		time.Now().Add(conf.AccessTokenLifeTime),
-		true,
+		false,
 		request.Username,
 	}
 	err = db.AddNewToken(rtinfo)

@@ -27,7 +27,7 @@ func CreateDbClient() (Client, error) {
 		`create table if not exists users (
 			username text primary key,
 			pass_hash text not null,
-			email text,	
+			email text not null
 		);`)
 	if err != nil {
 		return Client{}, err
@@ -37,7 +37,7 @@ func CreateDbClient() (Client, error) {
 			token text primary key,
 			exp_time timestamp not null,
 			refresh boolean not null,
-			username text not null,
+			username text not null
 		);`)
 	return db, err
 }
@@ -80,7 +80,7 @@ func (db *Client) GetTokenInfo(token string) (TokenInfo, error) {
 	err := db.connection.QueryRow(context.Background(),
 		`select token, exp_time, refresh, username from tokens
 		where token = $1
-		`, token).Scan(&tinfo.Token, &tinfo.ExpTime, &tinfo.Refresh, tinfo.Username)
+		`, token).Scan(&tinfo.Token, &tinfo.ExpTime, &tinfo.Refresh, &tinfo.Username)
 	if err == pgx.ErrNoRows {
 		err = ErrTokenNotFound
 	}
@@ -89,7 +89,7 @@ func (db *Client) GetTokenInfo(token string) (TokenInfo, error) {
 
 func (db *Client) AddNewToken(tinfo TokenInfo) error {
 	_, err := db.connection.Exec(context.Background(),
-		`insert into tokens (token, expiration_time, refresh, username)
+		`insert into tokens (token, exp_time, refresh, username)
 		values($1, $2, $3, $4)`, tinfo.Token, tinfo.ExpTime, tinfo.Refresh, tinfo.Username)
 	return err
 }
