@@ -2,6 +2,8 @@ version: "3"
 services:
     database:
         image: postgres
+        ports:
+            - 5432:5432
         environment:
             POSTGRES_PASSWORD: DB_PASSWORD
     item-storage:
@@ -13,3 +15,15 @@ services:
         command: ["./wait-for-it.sh", "database:5432", "--", "./item-storage"]
         environment:
             DATABASE_URL: "postgres://postgres:DB_PASSWORD@database:5432/postgres"
+    auth:
+        build: ./authentication
+        ports:
+            - 8081:8080
+        depends_on:
+            - "database"
+        command: ["./wait-for-it.sh", "database:5432", "--", "./authentication"]
+        environment:
+            DATABASE_URL: "postgres://postgres:DB_PASSWORD@database:5432/postgres"
+            TOKEN_LENGTH: "10"
+            REFRESH_TOKEN_LIFE_TIME: "24h"
+            ACCESS_TOKEN_LIFE_TIME: "30m"

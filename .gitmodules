@@ -1,3 +1,6 @@
 [submodule "wait-for-it"]
 	path = item-storage/wait-for-it
 	url = https://github.com/vishnubob/wait-for-it
+[submodule "authentication/wait-for-it"]
+	path = authentication/wait-for-it
+	url = https://github.com/vishnubob/wait-for-it
