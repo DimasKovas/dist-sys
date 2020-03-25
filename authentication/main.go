@@ -189,7 +189,7 @@ type getValidateRequest struct{}
 type getValidateResponse struct{}
 
 func getValidateHandler(w http.ResponseWriter, r *http.Request) {
-	token := w.Header().Get("auth")
+	token := r.Header.Get("auth")
 	tinfo, err := db.GetTokenInfo(token)
 	if err != nil {
 		switch err {

@@ -9,12 +9,14 @@ import (
 	"strconv"
 	"strings"
 
+	"item-storage/auth"
 	"item-storage/dbclient"
 )
 
 type Item = dbclient.Item
 
 var db dbclient.Client
+var ac auth.AuthClient
 
 func respondOK(w http.ResponseWriter, result interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -28,7 +30,7 @@ type errorResponse struct {
 func respondWithError(w http.ResponseWriter, err error, statusCode int) {
 	w.WriteHeader(statusCode)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(errorResponse{fmt.Sprint(err)})
+	json.NewEncoder(w).Encode(errorResponse{err.Error()})
 }
 
 func parseUint(s string) (uint64, error) {
@@ -41,6 +43,20 @@ func parseInt(s string) (int64, error) {
 
 func extractIndexFromUrl(url string, pref string) (uint64, error) {
 	return parseUint(strings.TrimPrefix(url, pref))
+}
+
+func checkPermission(w http.ResponseWriter, r *http.Request) bool {
+	token := r.Header.Get("auth")
+	err := ac.Validate(token)
+	if err != nil {
+		if e, ok := err.(*auth.ErrResponseWithStatus); ok {
+			respondWithError(w, e.RemoteError, e.StatusCode)
+		} else {
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
+		return false
+	}
+	return true
 }
 
 type getItemResponse = Item
@@ -69,6 +85,9 @@ type postItemResponse struct {
 }
 
 func postItemHandler(w http.ResponseWriter, r *http.Request) {
+	if !checkPermission(w, r) {
+		return
+	}
 	var item Item
 	err := json.NewDecoder(r.Body).Decode(&item)
 	if err != nil {
@@ -86,6 +105,9 @@ func postItemHandler(w http.ResponseWriter, r *http.Request) {
 type putItemResponse struct{}
 
 func putItemHandler(w http.ResponseWriter, r *http.Request) {
+	if !checkPermission(w, r) {
+		return
+	}
 	id, err := extractIndexFromUrl(r.URL.Path, "/item/")
 	if err != nil {
 		respondWithError(w, err, http.StatusBadRequest)
@@ -114,6 +136,9 @@ func putItemHandler(w http.ResponseWriter, r *http.Request) {
 type deleteItemResponse struct{}
 
 func deleteItemHandler(w http.ResponseWriter, r *http.Request) {
+	if !checkPermission(w, r) {
+		return
+	}
 	id, err := extractIndexFromUrl(r.URL.Path, "/item/")
 	if err != nil {
 		respondWithError(w, err, http.StatusBadRequest)
@@ -211,6 +236,10 @@ func generalItemsHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	var err error
+	ac, err = auth.CreateAuthClient()
+	if err != nil {
+		log.Panic(err)
+	}
 	db, err = dbclient.CreateDbClient()
 	if err != nil {
 		log.Panic(err)
