@@ -47,8 +47,8 @@ func checkPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
-func generateToken(lenght int) string {
-	b := make([]byte, lenght)
+func generateToken(lenght uint) string {
+	b := make([]byte, (lenght+1)/2)
 	rand.Read(b)
 	return fmt.Sprintf("%x", b)
 }
@@ -94,7 +94,12 @@ func postSignUpHandler(w http.ResponseWriter, r *http.Request) {
 	user.Email = request.Email
 	err = db.AddUser(user)
 	if err != nil {
-		respondWithError(w, err, http.StatusBadRequest)
+		switch err {
+		case dbclient.ErrUserAlreadyExists:
+			respondWithError(w, err, http.StatusBadRequest)
+		default:
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
 		return
 	}
 	respondOK(w, postSignUpResponse{})
@@ -120,6 +125,8 @@ type postSignInResponse struct {
 	AccessToken  string `json:"access_token"`
 }
 
+var ErrNotValid = errors.New("Username or password is not valid")
+
 func postSignInHandler(w http.ResponseWriter, r *http.Request) {
 	var request postSignInRequest
 	err := json.NewDecoder(r.Body).Decode(&request)
@@ -129,15 +136,20 @@ func postSignInHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := db.GetUser(request.Username)
 	if err != nil {
-		respondWithError(w, err, http.StatusBadRequest)
+		switch err {
+		case dbclient.ErrNotFound:
+			respondWithError(w, ErrNotValid, http.StatusUnauthorized)
+		default:
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
 		return
 	}
 	if !checkPasswordHash(request.Password, user.PassHash) {
-		respondWithError(w, errors.New("oops"), http.StatusNotFound)
+		respondWithError(w, ErrNotValid, http.StatusUnauthorized)
 		return
 	}
-	refresh := generateToken(10)
-	access := generateToken(10)
+	refresh := generateToken(conf.TokenLength)
+	access := generateToken(conf.TokenLength)
 	rtinfo := dbclient.TokenInfo{
 		refresh,
 		time.Now().Add(conf.RefreshTokenLifeTime),
@@ -173,30 +185,27 @@ func generalSignInHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type getValidateRequest struct {
-	Token string `json:"token"`
-}
-
+type getValidateRequest struct{}
 type getValidateResponse struct{}
 
 func getValidateHandler(w http.ResponseWriter, r *http.Request) {
-	var request getValidateRequest
-	err := json.NewDecoder(r.Body).Decode(&request)
+	token := w.Header().Get("auth")
+	tinfo, err := db.GetTokenInfo(token)
 	if err != nil {
-		respondWithError(w, err, http.StatusBadRequest)
-		return
-	}
-	tinfo, err := db.GetTokenInfo(request.Token)
-	if err != nil {
-		respondWithError(w, err, http.StatusBadRequest)
+		switch err {
+		case dbclient.ErrNotFound:
+			respondWithError(w, errors.New("Token is not valid"), http.StatusUnauthorized)
+		default:
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
 		return
 	}
 	if tinfo.Refresh {
-		respondWithError(w, errors.New("Should provide access token"), http.StatusForbidden)
+		respondWithError(w, errors.New("Should provide access token"), http.StatusBadRequest)
 		return
 	}
 	if tinfo.ExpTime.Before(time.Now()) {
-		respondWithError(w, errors.New("Token has expired"), http.StatusForbidden)
+		respondWithError(w, errors.New("Token has expired"), http.StatusUnauthorized)
 		return
 	}
 	respondOK(w, getValidateResponse{})
@@ -229,7 +238,12 @@ func putRefreshHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rtinfo, err := db.GetTokenInfo(request.RefreshToken)
 	if err != nil {
-		respondWithError(w, err, http.StatusInternalServerError)
+		switch err {
+		case dbclient.ErrNotFound:
+			respondWithError(w, errors.New("Token is not valid"), http.StatusForbidden)
+		default:
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
 		return
 	}
 	if !rtinfo.Refresh {
@@ -240,7 +254,7 @@ func putRefreshHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, errors.New("Token has expired"), http.StatusForbidden)
 		return
 	}
-	access := generateToken(10)
+	access := generateToken(conf.TokenLength)
 	atinfo := dbclient.TokenInfo{
 		access,
 		time.Now().Add(conf.AccessTokenLifeTime),

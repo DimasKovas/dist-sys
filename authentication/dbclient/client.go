@@ -3,7 +3,9 @@ package dbclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v4"
@@ -13,8 +15,13 @@ type Client struct {
 	connection *pgx.Conn
 }
 
-var ErrTokenNotFound = errors.New("Specified token doesn't exist")
-var ErrUserNotFound = errors.New("Specified user doesn't exist")
+var ErrNotFound = errors.New("Not found found")
+var ErrUserAlreadyExists = errors.New("User with this username already exists")
+var ErrTokenAlreadyExists = errors.New("")
+
+func isDuplicateError(err error) bool {
+	return strings.Contains(fmt.Sprint(err), "duplicate key value violates unique constraint")
+}
 
 func CreateDbClient() (Client, error) {
 	db := Client{}
@@ -53,6 +60,9 @@ func (db *Client) AddUser(user User) error {
 		`insert into users (username, pass_hash, email)
 		values ($1, $2, $3)
 		`, user.Username, user.PassHash, user.Email)
+	if isDuplicateError(err) {
+		return ErrUserAlreadyExists
+	}
 	return err
 }
 
@@ -63,7 +73,7 @@ func (db *Client) GetUser(username string) (User, error) {
 		where username = $1
 		`, username).Scan(&user.Username, &user.PassHash, &user.Email)
 	if err == pgx.ErrNoRows {
-		err = ErrUserNotFound
+		err = ErrNotFound
 	}
 	return user, err
 }
@@ -82,7 +92,7 @@ func (db *Client) GetTokenInfo(token string) (TokenInfo, error) {
 		where token = $1
 		`, token).Scan(&tinfo.Token, &tinfo.ExpTime, &tinfo.Refresh, &tinfo.Username)
 	if err == pgx.ErrNoRows {
-		err = ErrTokenNotFound
+		err = ErrNotFound
 	}
 	return tinfo, err
 }
@@ -91,5 +101,8 @@ func (db *Client) AddNewToken(tinfo TokenInfo) error {
 	_, err := db.connection.Exec(context.Background(),
 		`insert into tokens (token, exp_time, refresh, username)
 		values($1, $2, $3, $4)`, tinfo.Token, tinfo.ExpTime, tinfo.Refresh, tinfo.Username)
+	if isDuplicateError(err) {
+		return ErrTokenAlreadyExists
+	}
 	return err
 }
