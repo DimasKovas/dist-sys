@@ -2,9 +2,18 @@
 В данном приложении реализовано простейшее REST-API для интернет-магазина с помощью микросервисов.
 
 ## Документация
-Документацию по доступным в данный момент методам можно найти в файле docs.md, а так же в виде Postman схемы в файле Project.postman_collection.json.
+Вся документация в виде описания доступных методов и примеров postman-схемы находится в директории docs. 
 
+## Архитектура
+
+![Diagram](/docs/Diagram.png)
+
+## Сборка
+```
+git submodule update --init --recursive
+docker-compose build
+```
 ## Запуск
 ```
-docker-compose build && docker-compose up
+docker-compose up
 ```
