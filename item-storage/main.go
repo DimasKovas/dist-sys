@@ -247,6 +247,6 @@ func main() {
 	http.HandleFunc("/items", generalItemsHandler)
 	http.HandleFunc("/item", generalItemHandler)
 	http.HandleFunc("/item/", generalItemHandler)
-	log.Println("HTTP Server started")
+	log.Println("Item-storage started")
 	log.Panic(http.ListenAndServe(":8080", nil))
 }
