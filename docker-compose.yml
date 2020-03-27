@@ -28,3 +28,19 @@ services:
             TOKEN_LENGTH: "10"
             REFRESH_TOKEN_LIFE_TIME: "24h"
             ACCESS_TOKEN_LIFE_TIME: "30m"
+    rabbit-mq:
+        image: rabbitmq:management
+        ports:
+            - 8083:15672
+    notifier:
+        build: ./notifier
+        depends_on:
+            - "rabbit-mq"
+        command: ["./wait-for-it.sh", "rabbit-mq:5672", "--", "./notifier"]
+        environment:
+            EMAIL_PROVIDER_ADDRESS: "http://provider-mock:8080/send"
+            PROVIDER_API_ID: "1234567890"
+            MESSAGE_QUEUE_URL: "amqp://guest:guest@rabbit-mq:5672/"
+    provider-mock:
+        build: ./provider-mock
+        command: ["./provider-mock"]

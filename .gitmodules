@@ -4,3 +4,6 @@
 [submodule "authentication/wait-for-it"]
 	path = authentication/wait-for-it
 	url = https://github.com/vishnubob/wait-for-it
+[submodule "notifier/wait-for-it"]
+	path = notifier/wait-for-it
+	url = https://github.com/vishnubob/wait-for-it
