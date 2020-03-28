@@ -27,12 +27,12 @@ func (c *Client) GetMessages() (<-chan amqp.Delivery, error) {
 		return nil, err
 	}
 	q, err := ch.QueueDeclare(
-		"email_messages", // name
-		false,            // durable
-		false,            // delete when unused
-		false,            // exclusive
-		false,            // no-wait
-		nil,              // arguments
+		"sms_messages", // name
+		false,          // durable
+		false,          // delete when unused
+		false,          // exclusive
+		false,          // no-wait
+		nil,            // arguments
 	)
 	if err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func (c *Client) GetMessages() (<-chan amqp.Delivery, error) {
 	msgs, err := ch.Consume(
 		q.Name, // queue
 		"",     // consumer
-		true,   // auto-ack
+		false,  // auto-ack
 		false,  // exclusive
 		false,  // no-local
 		false,  // no-wait
