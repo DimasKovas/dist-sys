@@ -9,19 +9,24 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"authentication/dbclient"
+	"authentication/mqclient"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 var db dbclient.Client
+var mq mqclient.Client
 
 type Config struct {
 	TokenLength          uint
 	RefreshTokenLifeTime time.Duration
 	AccessTokenLifeTime  time.Duration
+	ConfirmTokenLifeTime time.Duration
+	ConfirmAddress       string
 }
 
 var conf Config
@@ -34,7 +39,15 @@ func (c *Config) Load() error {
 		return err
 	}
 	c.AccessTokenLifeTime, err = time.ParseDuration(os.Getenv("ACCESS_TOKEN_LIFE_TIME"))
-	return err
+	if err != nil {
+		return err
+	}
+	c.ConfirmTokenLifeTime, err = time.ParseDuration(os.Getenv("CONFIRM_TOKEN_LIFE_TIME"))
+	if err != nil {
+		return err
+	}
+	c.ConfirmAddress = os.Getenv("CONFIRM_ADDRESS")
+	return nil
 }
 
 func hashPassword(password string) (string, error) {
@@ -68,13 +81,35 @@ func respondWithError(w http.ResponseWriter, err error, statusCode int) {
 	json.NewEncoder(w).Encode(errorResponse{fmt.Sprint(err)})
 }
 
-type postSignUpRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Email    string `json:"email"`
+func sendConfirmationMessage(username string, phone string) error {
+	token := generateToken(conf.TokenLength)
+	tinfo := dbclient.TokenInfo{
+		token,
+		time.Now().Add(conf.ConfirmTokenLifeTime),
+		dbclient.CONFIRM,
+		username,
+	}
+	err := db.AddNewToken(tinfo)
+	if err != nil {
+		return err
+	}
+	msg := fmt.Sprintf("To confirm registration folow the link: %s/%s", conf.ConfirmAddress, token)
+	err = mq.SendMessage(mqclient.Message{phone, msg})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-type postSignUpResponse struct{}
+type postSignUpRequest struct {
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	PhoneNumber string `json:"phone_number"`
+}
+
+type postSignUpResponse struct {
+	Message string `json:"message"`
+}
 
 func postSignUpHandler(w http.ResponseWriter, r *http.Request) {
 	var request postSignUpRequest
@@ -91,7 +126,8 @@ func postSignUpHandler(w http.ResponseWriter, r *http.Request) {
 	var user dbclient.User
 	user.Username = request.Username
 	user.PassHash = hash
-	user.Email = request.Email
+	user.PhoneNumber = request.PhoneNumber
+	user.PhoneConfirmed = false
 	err = db.AddUser(user)
 	if err != nil {
 		switch err {
@@ -102,7 +138,12 @@ func postSignUpHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	respondOK(w, postSignUpResponse{})
+	err = sendConfirmationMessage(user.Username, user.PhoneNumber)
+	if err != nil {
+		respondWithError(w, err, http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, postSignUpResponse{"We sent the confirmation link to your phone."})
 }
 
 func generalSignUpHandler(w http.ResponseWriter, r *http.Request) {
@@ -126,6 +167,7 @@ type postSignInResponse struct {
 }
 
 var ErrNotValid = errors.New("Username or password is not valid")
+var ErrPhoneNotConfirmed = errors.New("Your phone number is not confirmed. Follow the link in the sms")
 
 func postSignInHandler(w http.ResponseWriter, r *http.Request) {
 	var request postSignInRequest
@@ -148,18 +190,27 @@ func postSignInHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, ErrNotValid, http.StatusUnauthorized)
 		return
 	}
+	if !user.PhoneConfirmed {
+		err = sendConfirmationMessage(user.Username, user.PhoneNumber)
+		if err != nil {
+			respondWithError(w, err, http.StatusInternalServerError)
+			return
+		}
+		respondWithError(w, ErrPhoneNotConfirmed, http.StatusForbidden)
+		return
+	}
 	refresh := generateToken(conf.TokenLength)
 	access := generateToken(conf.TokenLength)
 	rtinfo := dbclient.TokenInfo{
 		refresh,
 		time.Now().Add(conf.RefreshTokenLifeTime),
-		true,
+		dbclient.REFRESH,
 		request.Username,
 	}
 	atinfo := dbclient.TokenInfo{
 		access,
 		time.Now().Add(conf.AccessTokenLifeTime),
-		false,
+		dbclient.ACCESS,
 		request.Username,
 	}
 	err = db.AddNewToken(rtinfo)
@@ -200,7 +251,7 @@ func getValidateHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if tinfo.Refresh {
+	if tinfo.Type != dbclient.ACCESS {
 		respondWithError(w, errors.New("Should provide access token"), http.StatusBadRequest)
 		return
 	}
@@ -246,7 +297,7 @@ func putRefreshHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if !rtinfo.Refresh {
+	if rtinfo.Type != dbclient.REFRESH {
 		respondWithError(w, errors.New("Should provide refresh token"), http.StatusBadRequest)
 		return
 	}
@@ -258,7 +309,7 @@ func putRefreshHandler(w http.ResponseWriter, r *http.Request) {
 	atinfo := dbclient.TokenInfo{
 		access,
 		time.Now().Add(conf.AccessTokenLifeTime),
-		false,
+		dbclient.ACCESS,
 		rtinfo.Username,
 	}
 	err = db.AddNewToken(atinfo)
@@ -279,6 +330,36 @@ func generalRefreshHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type confirmResponse struct{}
+
+func confirmHandler(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimPrefix(r.URL.Path, "/confirm/")
+	tinfo, err := db.GetTokenInfo(token)
+	if err != nil {
+		switch err {
+		case dbclient.ErrNotFound:
+			respondWithError(w, errors.New("Token is not valid"), http.StatusUnauthorized)
+		default:
+			respondWithError(w, err, http.StatusInternalServerError)
+		}
+		return
+	}
+	if tinfo.Type != dbclient.CONFIRM {
+		respondWithError(w, errors.New("Should provide confirm token"), http.StatusBadRequest)
+		return
+	}
+	if tinfo.ExpTime.Before(time.Now()) {
+		respondWithError(w, errors.New("Token has expired"), http.StatusUnauthorized)
+		return
+	}
+	err = db.ConfirmPhoneNumber(tinfo.Username)
+	if err != nil {
+		respondWithError(w, err, http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, confirmResponse{})
+}
+
 func main() {
 	var err error
 	err = conf.Load()
@@ -289,10 +370,15 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
+	mq, err = mqclient.CreateMqClient()
+	if err != nil {
+		log.Panic(err)
+	}
 	http.HandleFunc("/signup", generalSignUpHandler)
 	http.HandleFunc("/signin", generalSignInHandler)
 	http.HandleFunc("/validate", generalValidateHandler)
 	http.HandleFunc("/refresh", generalRefreshHandler)
+	http.HandleFunc("/confirm/", confirmHandler)
 	log.Println("Auth-server started")
 	log.Panic(http.ListenAndServe(":8080", nil))
 }

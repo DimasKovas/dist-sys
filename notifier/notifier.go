@@ -33,5 +33,9 @@ func main() {
 		if err != nil {
 			log.Panic(err)
 		}
+		err = m.Ack(false)
+		if err != nil {
+			log.Panic(err)
+		}
 	}
 }

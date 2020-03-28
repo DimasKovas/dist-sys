@@ -22,12 +22,18 @@ services:
             - 8081:8080
         depends_on:
             - "database"
-        command: ["./wait-for-it.sh", "database:5432", "--", "./authentication"]
+            - "rabbit-mq"
+        command: ["./wait-for-it.sh", "database:5432", "--", 
+                  "./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
+                  "./authentication"]
         environment:
             DATABASE_URL: "postgres://postgres:DB_PASSWORD@database:5432/postgres"
-            TOKEN_LENGTH: "10"
+            MESSAGE_QUEUE_URL: "amqp://guest:guest@rabbit-mq:5672/"
+            TOKEN_LENGTH: "20"
             REFRESH_TOKEN_LIFE_TIME: "24h"
             ACCESS_TOKEN_LIFE_TIME: "30m"
+            CONFIRM_TOKEN_LIFE_TIME: "12h"
+            CONFIRM_ADDRESS: "http://diko.me:8081/confirm"
     rabbit-mq:
         image: rabbitmq:management
         ports:
@@ -36,7 +42,8 @@ services:
         build: ./notifier
         depends_on:
             - "rabbit-mq"
-        command: ["./wait-for-it.sh", "rabbit-mq:5672", "--", "./notifier"]
+        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
+                  "./notifier"]
         environment:
             EMAIL_PROVIDER_ADDRESS: "http://provider-mock:8080/send"
             PROVIDER_API_ID: "1234567890"

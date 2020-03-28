@@ -34,7 +34,8 @@ func CreateDbClient() (Client, error) {
 		`create table if not exists users (
 			username text primary key,
 			pass_hash text not null,
-			email text not null
+			phone_number text not null,
+			phone_confirmed boolean not null
 		);`)
 	if err != nil {
 		return Client{}, err
@@ -43,23 +44,24 @@ func CreateDbClient() (Client, error) {
 		`create table if not exists tokens (
 			token text primary key,
 			exp_time timestamp not null,
-			refresh boolean not null,
+			token_type integer not null,
 			username text not null
 		);`)
 	return db, err
 }
 
 type User struct {
-	Username string
-	PassHash string
-	Email    string
+	Username       string
+	PassHash       string
+	PhoneNumber    string
+	PhoneConfirmed bool
 }
 
 func (db *Client) AddUser(user User) error {
 	_, err := db.connection.Exec(context.Background(),
-		`insert into users (username, pass_hash, email)
-		values ($1, $2, $3)
-		`, user.Username, user.PassHash, user.Email)
+		`insert into users (username, pass_hash, phone_number, phone_confirmed)
+		values ($1, $2, $3, $4)
+		`, user.Username, user.PassHash, user.PhoneNumber, user.PhoneConfirmed)
 	if isDuplicateError(err) {
 		return ErrUserAlreadyExists
 	}
@@ -69,28 +71,48 @@ func (db *Client) AddUser(user User) error {
 func (db *Client) GetUser(username string) (User, error) {
 	var user User
 	err := db.connection.QueryRow(context.Background(),
-		`select username, pass_hash, email from users
+		`select username, pass_hash, phone_number, phone_confirmed from users
 		where username = $1
-		`, username).Scan(&user.Username, &user.PassHash, &user.Email)
+		`, username).Scan(&user.Username, &user.PassHash, &user.PhoneNumber, &user.PhoneConfirmed)
 	if err == pgx.ErrNoRows {
 		err = ErrNotFound
 	}
 	return user, err
 }
 
+func (db *Client) ConfirmPhoneNumber(username string) error {
+	tags, err := db.connection.Exec(context.Background(),
+		`update users
+		set phone_confirmed = true
+		where username = $1
+		`, username)
+	if err == nil && tags.RowsAffected() != 1 {
+		err = ErrNotFound
+	}
+	return err
+}
+
+type TokenType int
+
+const (
+	ACCESS  TokenType = 0
+	REFRESH TokenType = 1
+	CONFIRM TokenType = 2
+)
+
 type TokenInfo struct {
 	Token    string
 	ExpTime  time.Time
-	Refresh  bool
+	Type     TokenType
 	Username string
 }
 
 func (db *Client) GetTokenInfo(token string) (TokenInfo, error) {
 	var tinfo TokenInfo
 	err := db.connection.QueryRow(context.Background(),
-		`select token, exp_time, refresh, username from tokens
+		`select token, exp_time, token_type, username from tokens
 		where token = $1
-		`, token).Scan(&tinfo.Token, &tinfo.ExpTime, &tinfo.Refresh, &tinfo.Username)
+		`, token).Scan(&tinfo.Token, &tinfo.ExpTime, &tinfo.Type, &tinfo.Username)
 	if err == pgx.ErrNoRows {
 		err = ErrNotFound
 	}
@@ -99,8 +121,8 @@ func (db *Client) GetTokenInfo(token string) (TokenInfo, error) {
 
 func (db *Client) AddNewToken(tinfo TokenInfo) error {
 	_, err := db.connection.Exec(context.Background(),
-		`insert into tokens (token, exp_time, refresh, username)
-		values($1, $2, $3, $4)`, tinfo.Token, tinfo.ExpTime, tinfo.Refresh, tinfo.Username)
+		`insert into tokens (token, exp_time, token_type, username)
+		values($1, $2, $3, $4)`, tinfo.Token, tinfo.ExpTime, tinfo.Type, tinfo.Username)
 	if isDuplicateError(err) {
 		return ErrTokenAlreadyExists
 	}
