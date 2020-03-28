@@ -330,7 +330,9 @@ func generalRefreshHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type confirmResponse struct{}
+type confirmResponse struct {
+	Message string `json:"message"`
+}
 
 func confirmHandler(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.URL.Path, "/confirm/")
@@ -357,7 +359,7 @@ func confirmHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err, http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, confirmResponse{})
+	respondOK(w, confirmResponse{"Registration has been successfully confirmed"})
 }
 
 func main() {
