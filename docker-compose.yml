@@ -7,7 +7,11 @@ services:
         environment:
             POSTGRES_PASSWORD: DB_PASSWORD
     item-storage:
-        build: ./item-storage
+        build: 
+            context: ./
+            dockerfile: Dockerfile-base
+            args:
+                service_name: item-storage
         ports:
             - 8080:8080
         depends_on:
@@ -17,7 +21,11 @@ services:
             DATABASE_URL: "postgres://postgres:DB_PASSWORD@database:5432/postgres"
             AUTH_SERVER_ADDRESS: "http://auth:8080/validate"
     auth:
-        build: ./authentication
+        build:
+            context: ./
+            dockerfile: Dockerfile-base
+            args:
+                service_name: authentication
         ports:
             - 8081:8080
         depends_on:
@@ -39,7 +47,11 @@ services:
         ports:
             - 8083:15672
     notifier:
-        build: ./notifier
+        build:
+            context: ./
+            dockerfile: Dockerfile-base
+            args:
+                service_name: notifier
         depends_on:
             - "rabbit-mq"
         command: ["./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
@@ -49,5 +61,9 @@ services:
             PROVIDER_API_ID: "1234567890"
             MESSAGE_QUEUE_URL: "amqp://guest:guest@rabbit-mq:5672/"
     provider-mock:
-        build: ./provider-mock
+        build:
+            context: ./
+            dockerfile: Dockerfile-base
+            args:
+                service_name: provider-mock
         command: ["./provider-mock"]

@@ -24,6 +24,7 @@ func CreateDbClient() (Client, error) {
 	_, err = db.connection.Exec(context.Background(),
 		`create table if not exists items (
 			id serial primary key,
+			universal_code text unique not null,
 			title text not null,
 			category text not null
 		);`)
@@ -31,18 +32,19 @@ func CreateDbClient() (Client, error) {
 }
 
 type Item struct {
-	ID       uint64 `json:"id"`
-	Title    string `json:"title"`
-	Category string `json:"category"`
+	ID            uint64 `json:"id"`
+	UniversalCode string `json:universal_code`
+	Title         string `json:"title"`
+	Category      string `json:"category"`
 }
 
 func (db *Client) NewItem(item Item) (uint64, error) {
 	var id uint64
 	err := db.connection.QueryRow(context.Background(),
-		`insert into items (title, category)
-		values ($1, $2)
+		`insert into items (universal_code, title, category)
+		values ($1, $2, $3)
 		returning id;
-		`, item.Title, item.Category).Scan(&id)
+		`, item.UniversalCode, item.Title, item.Category).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -52,10 +54,11 @@ func (db *Client) NewItem(item Item) (uint64, error) {
 func (db *Client) UpdateItem(item Item) error {
 	tags, err := db.connection.Exec(context.Background(),
 		`update items
-		set title = $1,
-			category = $2
-		where id = $3
-		`, item.Title, item.Category, item.ID)
+		set universal_code = $1
+			title = $2
+			category = $3
+		where id = $4
+		`, item.UniversalCode, item.Title, item.Category, item.ID)
 	if err == nil && tags.RowsAffected() != 1 {
 		return ErrNotFound
 	}
@@ -76,8 +79,8 @@ func (db *Client) DeleteItem(id uint64) error {
 func (db *Client) GetItem(id uint64) (Item, error) {
 	var item Item
 	err := db.connection.QueryRow(context.Background(),
-		`select id, title, category from items where id = $1
-		`, id).Scan(&item.ID, &item.Title, &item.Category)
+		`select id, universal_code, title, category from items where id = $1
+		`, id).Scan(&item.ID, &item.UniversalCode, &item.Title, &item.Category)
 	if err == pgx.ErrNoRows {
 		err = ErrNotFound
 	}
@@ -91,7 +94,7 @@ type GetItemListOptions struct {
 }
 
 func (db *Client) GetItemList(options GetItemListOptions) ([]Item, error) {
-	query := `select id, title, category from items
+	query := `select id, universal_code, title, category from items
 		order by id
 		offset $1
 		limit $2`
@@ -103,7 +106,7 @@ func (db *Client) GetItemList(options GetItemListOptions) ([]Item, error) {
 	res := make([]Item, 0)
 	for rows.Next() {
 		var item Item
-		err := rows.Scan(&item.ID, &item.Title, &item.Category)
+		err := rows.Scan(&item.ID, &item.UniversalCode, &item.Title, &item.Category)
 		if err != nil {
 			return nil, err
 		}
