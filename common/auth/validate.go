@@ -1,56 +1,77 @@
 package auth
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
-	"net/http"
 	"os"
+
+	pbauth "common/proto"
+
+	"google.golang.org/grpc"
 )
 
 type AuthClient struct {
-	client  http.Client
-	address string
+	client     pbauth.AuthRpcClient
+	connection *grpc.ClientConn
 }
 
 func CreateAuthClient() (AuthClient, error) {
-	client := AuthClient{}
-	client.address = os.Getenv("AUTH_SERVER_ADDRESS")
-	if len(client.address) == 0 {
-		return client, errors.New("Auth server address is not specified")
+	opts := []grpc.DialOption{
+		grpc.WithInsecure(),
 	}
+
+	address := os.Getenv("AUTH_RPC_ADDRESS")
+
+	if len(address) == 0 {
+		return AuthClient{}, errors.New("Auth server address is not specified")
+	}
+
+	conn, err := grpc.Dial(address, opts...)
+
+	if err != nil {
+		return AuthClient{}, err
+	}
+
+	client := AuthClient{}
+	client.connection = conn
+	client.client = pbauth.NewAuthRpcClient(conn)
+
 	return client, nil
 }
 
-type ErrResponseWithStatus struct {
-	StatusCode  int
-	RemoteError error
+type UserPermissions struct {
+	Username    string
+	Permissions []string
 }
 
-func (e *ErrResponseWithStatus) Error() string {
-	return e.RemoteError.Error()
+func (c *AuthClient) Validate(token string) (UserPermissions, error) {
+	request := &pbauth.ValidateRequest{
+		AccessToken: token,
+	}
+
+	response, err := c.client.Validate(context.Background(), request)
+
+	if err != nil {
+		return UserPermissions{}, err
+	}
+
+	result := UserPermissions{}
+	result.Username = response.Username
+	result.Permissions = response.Permissions
+	return result, nil
 }
 
-type errorResponse struct {
-	Error string `json:"error"`
-}
+var ErrForbidden = errors.New("Not enough permissions")
 
-func (c *AuthClient) Validate(token string) error {
-	req, err := http.NewRequest("GET", c.address, nil)
+func (c *AuthClient) CheckPermission(token string, permission string) error {
+	perms, err := c.Validate(token)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("auth", token)
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != 200 {
-		var respError errorResponse
-		err := json.NewDecoder(resp.Body).Decode(&respError)
-		if err == nil {
-			err = errors.New(respError.Error)
+	for _, p := range perms.Permissions {
+		if p == permission {
+			return nil
 		}
-		return &ErrResponseWithStatus{resp.StatusCode, err}
 	}
-	return nil
+	return ErrForbidden
 }

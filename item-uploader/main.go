@@ -46,22 +46,20 @@ func respondWithError(w http.ResponseWriter, err error, statusCode int) {
 	json.NewEncoder(w).Encode(errorResponse{err.Error()})
 }
 
-func checkPermission(w http.ResponseWriter, r *http.Request) bool {
+func checkPermission(w http.ResponseWriter, r *http.Request, perm string) bool {
 	token := r.Header.Get("auth")
-	err := ac.Validate(token)
+	err := ac.CheckPermission(token, perm)
 	if err != nil {
-		if e, ok := err.(*auth.ErrResponseWithStatus); ok {
-			respondWithError(w, e.RemoteError, e.StatusCode)
-		} else {
-			respondWithError(w, err, http.StatusInternalServerError)
-		}
+		respondWithError(w, err, http.StatusForbidden)
 		return false
 	}
 	return true
 }
 
+type postImportResponse struct{}
+
 func postImportHandler(w http.ResponseWriter, r *http.Request) {
-	if !checkPermission(w, r) {
+	if !checkPermission(w, r, "write") {
 		return
 	}
 	reader, err := r.MultipartReader()
@@ -120,6 +118,7 @@ func postImportHandler(w http.ResponseWriter, r *http.Request) {
 			mq.SendImportBatch(batch)
 		}
 	}
+	respondOK(w, postImportResponse{})
 }
 
 func generalImportHandler(w http.ResponseWriter, r *http.Request) {
