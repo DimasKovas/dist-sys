@@ -2,6 +2,7 @@ package dbclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -35,7 +36,8 @@ func CreateDbClient() (Client, error) {
 			username text primary key,
 			pass_hash text not null,
 			phone_number text not null,
-			phone_confirmed boolean not null
+			phone_confirmed boolean not null,
+			permissions text not null
 		);`)
 	if err != nil {
 		return Client{}, err
@@ -55,13 +57,18 @@ type User struct {
 	PassHash       string
 	PhoneNumber    string
 	PhoneConfirmed bool
+	Permissions    []string
 }
 
 func (db *Client) AddUser(user User) error {
-	_, err := db.connection.Exec(context.Background(),
-		`insert into users (username, pass_hash, phone_number, phone_confirmed)
-		values ($1, $2, $3, $4)
-		`, user.Username, user.PassHash, user.PhoneNumber, user.PhoneConfirmed)
+	perms, err := json.Marshal(user.Permissions)
+	if err != nil {
+		return err
+	}
+	_, err = db.connection.Exec(context.Background(),
+		`insert into users (username, pass_hash, phone_number, phone_confirmed, permissions)
+		values ($1, $2, $3, $4, $5)
+		`, user.Username, user.PassHash, user.PhoneNumber, user.PhoneConfirmed, perms)
 	if isDuplicateError(err) {
 		return ErrUserAlreadyExists
 	}
@@ -70,14 +77,22 @@ func (db *Client) AddUser(user User) error {
 
 func (db *Client) GetUser(username string) (User, error) {
 	var user User
+	var perms string
 	err := db.connection.QueryRow(context.Background(),
-		`select username, pass_hash, phone_number, phone_confirmed from users
+		`select username, pass_hash, phone_number, phone_confirmed, permissions from users
 		where username = $1
-		`, username).Scan(&user.Username, &user.PassHash, &user.PhoneNumber, &user.PhoneConfirmed)
+		`, username).Scan(&user.Username, &user.PassHash, &user.PhoneNumber, &user.PhoneConfirmed, &perms)
 	if err == pgx.ErrNoRows {
 		err = ErrNotFound
 	}
-	return user, err
+	if err != nil {
+		return user, err
+	}
+	err = json.Unmarshal([]byte(perms), &user.Permissions)
+	if err != nil {
+		return user, err
+	}
+	return user, nil
 }
 
 func (db *Client) ConfirmPhoneNumber(username string) error {
@@ -86,6 +101,22 @@ func (db *Client) ConfirmPhoneNumber(username string) error {
 		set phone_confirmed = true
 		where username = $1
 		`, username)
+	if err == nil && tags.RowsAffected() != 1 {
+		err = ErrNotFound
+	}
+	return err
+}
+
+func (db *Client) SetPermissions(username string, permissions []string) error {
+	perms, err := json.Marshal(permissions)
+	if err != nil {
+		return err
+	}
+	tags, err := db.connection.Exec(context.Background(),
+		`update users
+		set permissions = $1
+		where username = $2
+		 `, perms, username)
 	if err == nil && tags.RowsAffected() != 1 {
 		err = ErrNotFound
 	}

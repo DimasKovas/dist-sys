@@ -16,10 +16,13 @@ services:
             - 8080:8080
         depends_on:
             - "database"
-        command: ["./wait-for-it.sh", "database:5432", "--", "./item-storage"]
+            - "auth"
+        command: ["./wait-for-it.sh", "-s", "-t", "300", "database:5432", "--",
+                  "./wait-for-it.sh", "-s", "-t", "300", "auth:5300", "--",
+                  "./item-storage"]
         environment:
             DATABASE_URL: "postgres://postgres:DB_PASSWORD@database:5432/postgres"
-            AUTH_SERVER_ADDRESS: "http://auth:8080/validate"
+            AUTH_RPC_ADDRESS: "auth:5300"
     auth:
         build:
             context: ./
@@ -31,8 +34,8 @@ services:
         depends_on:
             - "database"
             - "rabbit-mq"
-        command: ["./wait-for-it.sh", "database:5432", "--", 
-                  "./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
+        command: ["./wait-for-it.sh", "database:5432", "-s", "-t", "300", "--", 
+                  "./wait-for-it.sh", "rabbit-mq:5672", "-s", "-t", "300", "--",
                   "./authentication"]
         environment:
             DATABASE_URL: "postgres://postgres:DB_PASSWORD@database:5432/postgres"
@@ -54,7 +57,7 @@ services:
                 service_name: notifier
         depends_on:
             - "rabbit-mq"
-        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
+        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-s", "-t", "300", "--",
                   "./notifier"]
         environment:
             EMAIL_PROVIDER_ADDRESS: "http://provider-mock:8080/send"
@@ -77,12 +80,14 @@ services:
             - 8084:8080
         depends_on:
             - "rabbit-mq"
-        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
+            - "auth"
+        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-s", "-t", "300", "--",
+                  "./wait-for-it.sh", "auth:5300", "-s", "-t", "300", "--",
                   "./item-uploader"]
         environment: 
             MESSAGE_QUEUE_URL: "amqp://guest:guest@rabbit-mq:5672/"
             BATCH_SIZE: "100"
-            AUTH_SERVER_ADDRESS: "http://auth:8080/validate"
+            AUTH_RPC_ADDRESS: "auth:5300"
     item-importer:
         build:
             context: ./
@@ -92,8 +97,8 @@ services:
         depends_on:
             - "rabbit-mq"
             - "database"
-        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
-                  "./wait-for-it.sh", "database:5432", "--",
+        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-s", "-t", "300", "--",
+                  "./wait-for-it.sh", "database:5432", "-s", "-t", "300", "--",
                   "./item-importer"]
         environment:
             MESSAGE_QUEUE_URL: "amqp://guest:guest@rabbit-mq:5672/"

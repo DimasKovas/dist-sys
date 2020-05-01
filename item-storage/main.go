@@ -45,15 +45,11 @@ func extractIndexFromUrl(url string, pref string) (uint64, error) {
 	return parseUint(strings.TrimPrefix(url, pref))
 }
 
-func checkPermission(w http.ResponseWriter, r *http.Request) bool {
+func checkPermission(w http.ResponseWriter, r *http.Request, perm string) bool {
 	token := r.Header.Get("auth")
-	err := ac.Validate(token)
+	err := ac.CheckPermission(token, perm)
 	if err != nil {
-		if e, ok := err.(*auth.ErrResponseWithStatus); ok {
-			respondWithError(w, e.RemoteError, e.StatusCode)
-		} else {
-			respondWithError(w, err, http.StatusInternalServerError)
-		}
+		respondWithError(w, err, http.StatusForbidden)
 		return false
 	}
 	return true
@@ -62,6 +58,9 @@ func checkPermission(w http.ResponseWriter, r *http.Request) bool {
 type getItemResponse = Item
 
 func getItemHandler(w http.ResponseWriter, r *http.Request) {
+	if !checkPermission(w, r, "read") {
+		return
+	}
 	id, err := extractIndexFromUrl(r.URL.Path, "/item/")
 	if err != nil {
 		respondWithError(w, err, http.StatusBadRequest)
@@ -85,7 +84,7 @@ type postItemResponse struct {
 }
 
 func postItemHandler(w http.ResponseWriter, r *http.Request) {
-	if !checkPermission(w, r) {
+	if !checkPermission(w, r, "write") {
 		return
 	}
 	var item Item
@@ -105,7 +104,7 @@ func postItemHandler(w http.ResponseWriter, r *http.Request) {
 type putItemResponse struct{}
 
 func putItemHandler(w http.ResponseWriter, r *http.Request) {
-	if !checkPermission(w, r) {
+	if !checkPermission(w, r, "write") {
 		return
 	}
 	id, err := extractIndexFromUrl(r.URL.Path, "/item/")
@@ -136,7 +135,7 @@ func putItemHandler(w http.ResponseWriter, r *http.Request) {
 type deleteItemResponse struct{}
 
 func deleteItemHandler(w http.ResponseWriter, r *http.Request) {
-	if !checkPermission(w, r) {
+	if !checkPermission(w, r, "write") {
 		return
 	}
 	id, err := extractIndexFromUrl(r.URL.Path, "/item/")
@@ -186,6 +185,9 @@ type getItemsResponse struct {
 }
 
 func getItemsHandler(w http.ResponseWriter, r *http.Request) {
+	if !checkPermission(w, r, "read") {
+		return
+	}
 	var options dbclient.GetItemListOptions
 	params := r.URL.Query()
 	if params["offset"] != nil {

@@ -81,6 +81,22 @@ func respondWithError(w http.ResponseWriter, err error, statusCode int) {
 	json.NewEncoder(w).Encode(errorResponse{fmt.Sprint(err)})
 }
 
+func checkPermission(w http.ResponseWriter, r *http.Request, perm string) bool {
+	token := r.Header.Get("auth")
+	perms, err := doValidate(token)
+	if err != nil {
+		respondWithError(w, err, http.StatusUnauthorized)
+		return false
+	}
+	for _, p := range perms.Permissions {
+		if p == perm {
+			return true
+		}
+	}
+	respondWithError(w, errors.New("Not enough permissions"), http.StatusForbidden)
+	return false
+}
+
 func sendConfirmationMessage(username string, phone string) error {
 	token := generateToken(conf.TokenLength)
 	tinfo := dbclient.TokenInfo{
@@ -128,6 +144,7 @@ func postSignUpHandler(w http.ResponseWriter, r *http.Request) {
 	user.PassHash = hash
 	user.PhoneNumber = request.PhoneNumber
 	user.PhoneConfirmed = false
+	user.Permissions = append(user.Permissions, "read")
 	err = db.AddUser(user)
 	if err != nil {
 		switch err {
@@ -237,29 +254,47 @@ func generalSignInHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type getValidateRequest struct{}
-type getValidateResponse struct{}
 
-func getValidateHandler(w http.ResponseWriter, r *http.Request) {
-	token := r.Header.Get("auth")
+type getValidateResponse struct {
+	Username    string   `json:"username"`
+	Permissions []string `json:"permissions"`
+}
+
+func doValidate(token string) (getValidateResponse, error) {
 	tinfo, err := db.GetTokenInfo(token)
 	if err != nil {
 		switch err {
 		case dbclient.ErrNotFound:
-			respondWithError(w, errors.New("Token is not valid"), http.StatusUnauthorized)
+			return getValidateResponse{}, errors.New("Token is not valid")
 		default:
-			respondWithError(w, err, http.StatusInternalServerError)
+			return getValidateResponse{}, err
 		}
-		return
 	}
 	if tinfo.Type != dbclient.ACCESS {
-		respondWithError(w, errors.New("Should provide access token"), http.StatusBadRequest)
-		return
+		return getValidateResponse{}, errors.New("Should provide access token")
 	}
 	if tinfo.ExpTime.Before(time.Now()) {
-		respondWithError(w, errors.New("Token has expired"), http.StatusUnauthorized)
+		return getValidateResponse{}, errors.New("Token has expired")
+	}
+	uinfo, err := db.GetUser(tinfo.Username)
+	if err != nil {
+		return getValidateResponse{}, err
+	}
+	result := getValidateResponse{
+		Username:    uinfo.Username,
+		Permissions: uinfo.Permissions,
+	}
+	return result, nil
+}
+
+func getValidateHandler(w http.ResponseWriter, r *http.Request) {
+	token := r.Header.Get("auth")
+	result, err := doValidate(token)
+	if err != nil {
+		respondWithError(w, err, http.StatusUnauthorized)
 		return
 	}
-	respondOK(w, getValidateResponse{})
+	respondOK(w, result)
 }
 
 func generalValidateHandler(w http.ResponseWriter, r *http.Request) {
@@ -330,6 +365,41 @@ func generalRefreshHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type putSetPermissionsRequest struct {
+	Username    string   `json:"username"`
+	Permissions []string `json:"permissions"`
+}
+
+type putSetPermissionsResponse struct{}
+
+func putSetPermissionsHandler(w http.ResponseWriter, r *http.Request) {
+	if !checkPermission(w, r, "manage") {
+		return
+	}
+	var request putSetPermissionsRequest
+	err := json.NewDecoder(r.Body).Decode(&request)
+	if err != nil {
+		respondWithError(w, err, http.StatusBadRequest)
+		return
+	}
+	err = db.SetPermissions(request.Username, request.Permissions)
+	if err != nil {
+		respondWithError(w, err, http.StatusBadRequest)
+		return
+	}
+	respondOK(w, putSetPermissionsResponse{})
+}
+
+func generalSetPermissionsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "PUT":
+		putSetPermissionsHandler(w, r)
+	default:
+		w.Header().Add("Allow", "PUT")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
 type confirmResponse struct {
 	Message string `json:"message"`
 }
@@ -380,7 +450,9 @@ func main() {
 	http.HandleFunc("/signin", generalSignInHandler)
 	http.HandleFunc("/validate", generalValidateHandler)
 	http.HandleFunc("/refresh", generalRefreshHandler)
+	http.HandleFunc("/set_permissions", generalSetPermissionsHandler)
 	http.HandleFunc("/confirm/", confirmHandler)
 	log.Println("Auth-server started")
+	go RunRpcServer()
 	log.Panic(http.ListenAndServe(":8080", nil))
 }
