@@ -67,3 +67,34 @@ services:
             args:
                 service_name: provider-mock
         command: ["./provider-mock"]
+    item-uploader:
+        build:
+            context: ./
+            dockerfile: Dockerfile-base
+            args:
+                service_name: item-uploader
+        ports:
+            - 8084:8080
+        depends_on:
+            - "rabbit-mq"
+        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
+                  "./item-uploader"]
+        environment: 
+            MESSAGE_QUEUE_URL: "amqp://guest:guest@rabbit-mq:5672/"
+            BATCH_SIZE: "100"
+            AUTH_SERVER_ADDRESS: "http://auth:8080/validate"
+    item-importer:
+        build:
+            context: ./
+            dockerfile: Dockerfile-base
+            args:
+                service_name: item-importer
+        depends_on:
+            - "rabbit-mq"
+            - "database"
+        command: ["./wait-for-it.sh", "rabbit-mq:5672", "-t", "60", "--",
+                  "./wait-for-it.sh", "database:5432", "--",
+                  "./item-importer"]
+        environment:
+            MESSAGE_QUEUE_URL: "amqp://guest:guest@rabbit-mq:5672/"
+            DATABASE_URL: "postgres://postgres:DB_PASSWORD@database:5432/postgres"

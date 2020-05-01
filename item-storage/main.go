@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"common/auth"
 	"common/dbclient"
-	"item-storage/auth"
 )
 
 type Item = dbclient.Item

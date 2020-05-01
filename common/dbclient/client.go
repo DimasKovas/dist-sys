@@ -3,7 +3,9 @@ package dbclient
 import (
 	"context"
 	"errors"
+	"hash/crc64"
 	"os"
+	"strconv"
 
 	"github.com/jackc/pgx/v4"
 )
@@ -33,12 +35,23 @@ func CreateDbClient() (Client, error) {
 
 type Item struct {
 	ID            uint64 `json:"id"`
-	UniversalCode string `json:universal_code`
+	UniversalCode string `json:"universal_code"`
 	Title         string `json:"title"`
 	Category      string `json:"category"`
 }
 
+func (item *Item) GenerateUniversalCode() {
+	table := crc64.MakeTable(123)
+	item.UniversalCode = strconv.FormatUint(
+		(crc64.Checksum([]byte(item.Title), table)*399123321)^
+			crc64.Checksum([]byte(item.Category), table),
+		16)
+}
+
 func (db *Client) NewItem(item Item) (uint64, error) {
+	if item.UniversalCode == "" {
+		item.GenerateUniversalCode()
+	}
 	var id uint64
 	err := db.connection.QueryRow(context.Background(),
 		`insert into items (universal_code, title, category)
@@ -52,6 +65,9 @@ func (db *Client) NewItem(item Item) (uint64, error) {
 }
 
 func (db *Client) UpdateItem(item Item) error {
+	if item.UniversalCode == "" {
+		item.GenerateUniversalCode()
+	}
 	tags, err := db.connection.Exec(context.Background(),
 		`update items
 		set universal_code = $1
@@ -120,4 +136,20 @@ func (db *Client) GetItemListSize() (int, error) {
 	err := db.connection.QueryRow(context.Background(),
 		`select count(*) from items`).Scan(&size)
 	return size, err
+}
+
+func (db *Client) ImportItemBatch(batch []Item) error {
+	dbbatch := &pgx.Batch{}
+	query := `insert into items (universal_code, title, category)
+		values ($1, $2, $3) ON CONFLICT DO NOTHING`
+	for _, item := range batch {
+		if item.UniversalCode == "" {
+			item.GenerateUniversalCode()
+		}
+		dbbatch.Queue(query, item.UniversalCode, item.Title, item.Category)
+	}
+	batch_results := db.connection.SendBatch(context.Background(), dbbatch)
+	defer batch_results.Close()
+	_, err := batch_results.Exec()
+	return err
 }
