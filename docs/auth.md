@@ -33,7 +33,12 @@
 * **Description**: Проверят авторизацию пользователя по заголовку *auth*
 * **HttpMethod**: GET
 * **UrlPath**: /validate
+* **RpcMethod**: AuthRpc.Validate
 * **Authorization**: required
+* **Output-type**: application/json
+* **Output**:
+  * **username (string)**: Username пользователя.
+  * **permissions (array(string))**: Права пользователя в системе.
 
 ### Refresh()
 * **Description**: Обновляет access токен.
@@ -47,3 +52,12 @@
 * **Output**:
   * **access_token (string)**: Новый access токен.
 
+### SetPermissions()
+* **Description**: Устанавливает новые права для указанного пользователя.
+* **HttpMethod**: PUT
+* **UrlPath**: /set_permissions
+* **Authorization**: required
+* **Input-type**: application/json
+* **Input**:
+  * **username (string)**: Username пользователя.
+  * **permissions (array(string))**: Новые права пользователя в системе.
